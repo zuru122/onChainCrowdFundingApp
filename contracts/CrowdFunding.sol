@@ -76,7 +76,6 @@ contract CrowdFunding {
         require(_amount > 0, "Amount must be greater than 0.");
         require(bytes(_name).length > 0, "Name is required.");
         tiers.push(Tier(_name, _amount, 0));
-    
     }
 
     // remove tier
