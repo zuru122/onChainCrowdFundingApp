@@ -6,8 +6,10 @@ contract CrowdFunding {
     string public description;
     uint256 public goal;
     uint256 public deadline;
-
+   
     address public owner;
+
+    bool public paused;
 
     enum CampaignState{
         Active,
@@ -23,7 +25,17 @@ contract CrowdFunding {
         uint256 backers;
     }
 
+    struct Backer {
+        uint256 totalContribution;
+        mapping(uint256 => bool) fundedTier;
+    }
+
     Tier[] public tiers;
+
+    // put in an address, it will generate the information 
+    // of that address as a backer and we will have 
+    // the total contribution and the teir they've funded.
+    mapping(address => Backer) public backers;
 
     // modifiers
     modifier onlyOwner(){
@@ -33,6 +45,11 @@ contract CrowdFunding {
 
     modifier campaignOpen(){
         require(state == CampaignState.Active, "Campaign is not active");
+        _;
+    }
+
+    modifier notPaused(){
+        require(!paused, "Campaign is paused");
         _;
     }
 
@@ -48,7 +65,7 @@ contract CrowdFunding {
         owner = msg.sender;
         state = CampaignState.Active;
     }
-
+    
     function checkAndUpdateCampaignState() internal{
         if(state == CampaignState.Active){
             if(block.timestamp >= deadline){
@@ -60,11 +77,14 @@ contract CrowdFunding {
 
     }
 
-    function fund(uint256 _tierIndex) public campaignOpen payable {
+    
+    function fund(uint256 _tierIndex) public campaignOpen notPaused payable {
         require(_tierIndex < tiers.length, "Invalid tier.");
         require(msg.value == tiers[_tierIndex].amount, "Incorrect amount.");
 
         tiers[_tierIndex].backers++;
+        backers[msg.sender].totalContribution += msg.value;
+        backers[msg.sender].fundedTier[_tierIndex] = true;
 
         checkAndUpdateCampaignState();
     }
@@ -94,9 +114,47 @@ contract CrowdFunding {
         require(balance > 0, "No balance to withdraw");
 
         payable(owner).transfer(balance);
+        // call{value: balance}("")
     }
 
     function getContractBalance()public view returns(uint256) {
         return address(this).balance;
+    }
+
+    function refund() public {
+        checkAndUpdateCampaignState();
+        require(state == CampaignState.Failed, "Refunds not available");
+        uint256 amount = backers[msg.sender].totalContribution;
+        require(amount > 0, "No contribution to refund");
+
+        backers[msg.sender].totalContribution = 0;
+        
+        payable(msg.sender).transfer(amount);
+
+    }
+
+    function hasFundedTier(address _backer, uint256 _tierIndex) public view returns(bool) {
+       return backers[_backer].fundedTier[_tierIndex];
+    }
+
+    function getTiers()public view returns(Tier[] memory){
+        return tiers;
+    }
+
+    function togglePause() public onlyOwner {
+        paused = !paused;
+
+    }
+    function getCampaignStatus()public view returns(CampaignState){
+        if(state == CampaignState.Active && block.timestamp > deadline){
+            return address(this).balance >= goal ? CampaignState.Successful : CampaignState.Failed;   
+
+        }
+        return state;
+
+    }
+
+    function extendDeadline(uint256 _dayToAdd)public onlyOwner {
+        deadline += _dayToAdd * 1 days;
     }
 }
